@@ -1,0 +1,13 @@
+pandas==3.0.0
+python-dotenv==1.2.1
+requests==2.32.5
+confluent-kafka==2.3.0
+<<<<<<< HEAD
+
+=======
+<<<<<<< Updated upstream
+kafka-python==2.0.2
+=======
+kafka-python
+>>>>>>> Stashed changes
+>>>>>>> 86f598ea73c8a3cdef85cadae101e33f49eb65f6
