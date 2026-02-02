@@ -1,3 +1,4 @@
+# docker/compose.yml
 services:
   kafka:
     image: confluentinc/cp-kafka:7.6.1
@@ -128,7 +129,7 @@ services:
   spark-streaming:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.spark
+      dockerfile: docker/dockerfile.spark
     depends_on:
       - kafka
       - redis
@@ -166,6 +167,29 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - wikimedia-network
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/dockerfile.backend
+    container_name: wiki-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+       # 키들은 기본값이 spark 코드랑 맞아서 없어도 됨(원하면 명시 가능)
+      # - KEY_TOTAL=metrics:events_total_10m_10s
+      # - KEY_BY_TYPE=metrics:events_by_type_10m_10s
+      # - KEY_BOT=metrics:bot_ratio_1m
+      # - KEY_TOP=metrics:top_domain_5m_top10
+      
+      # 프론트 개발 단계면 아래도 추천(필요 시 api_server.py에서 사용)
+      # - CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+    depends_on:
+      redis:
+        condition: service_healthy
     networks:
       - wikimedia-network
 
