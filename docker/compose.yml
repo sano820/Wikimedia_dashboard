@@ -100,7 +100,7 @@ services:
     env_file:
       - ../.env
     volumes:
-      - ./data:/data
+      - ../data:/data
     command: ["python", "consumer.py"]
     networks:
       - wikimedia-network
