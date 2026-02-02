@@ -131,15 +131,20 @@ services:
       dockerfile: docker/Dockerfile.spark
     depends_on:
       - kafka
+      - redis
+    user: "0:0"
     working_dir: /app
     volumes:
       - ../src:/app/src:ro
       - ../checkpoints:/app/checkpoints
       - ../output:/app/output
+      - ../data:/app/data
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC: wiki-events
       SPARK_CHECKPOINT_DIR: /app/checkpoints/wiki
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     command: >
       /opt/spark/bin/spark-submit
       --master local[*]
@@ -148,6 +153,25 @@ services:
     networks:
       - wikimedia-network
 
+  redis:
+    image: redis:7-alpine
+    container_name: wiki-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wikimedia-network
+
 networks:
   wikimedia-network:
     driver: bridge
+
+volumes:
+  redis-data:

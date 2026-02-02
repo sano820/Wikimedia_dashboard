@@ -5,7 +5,8 @@ USER root
 # 필요한 Python 패키지 설치
 RUN pip install --no-cache-dir \
     pandas \
-    pyarrow
+    pyarrow \
+    redis
 
 # Kafka 연동을 위한 JAR 파일 다운로드
 RUN curl -L -o /opt/spark/jars/spark-sql-kafka-0-10_2.12-3.5.0.jar \
