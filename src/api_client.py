@@ -1,3 +1,4 @@
+# src/api_client.py
 """
 Wikimedia EventStreams API 클라이언트 (SSE)
 - recentchange 스트림에서 이벤트(dict)를 계속 yield

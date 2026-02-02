@@ -1,3 +1,4 @@
+# src/spark_streaming.py
 """
 Wikimedia Kafka 스트림 처리 with Spark Structured Streaming
 - Kafka topic 'wiki-events'에서 Wikimedia recentchange 이벤트 읽기
