@@ -54,3 +54,13 @@ Wikimedia_dashboard
      ├── App.jsx
 ```
 
+### 4. 프로젝트 실행하기
+- Step1. docker 파일 내에서
+```
+docker compose up --build
+```
+
+- Step2. fontend 파일 내에서
+```
+npm run dev
+```
