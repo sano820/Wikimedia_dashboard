@@ -27,6 +27,7 @@ https://www.notion.so/SESAC-2-2f65e6ec40c881c0b899f7c60fe51d78
 ### 2. 
 ---
 - 아키텍쳐 설명하기
+<img width="1166" height="750" alt="image" src="https://github.com/user-attachments/assets/33d58364-059c-4607-b097-bad23b205b98" />
 
 
 ### 3. 프로젝트 구조
