@@ -108,7 +108,7 @@ def health() -> Dict[str, Any]:
 
 
 @app.get("/api/dashboard/latest")
-def latest_dashboard(response: Response) -> Any:
+def latest_dashboard(response: Response, limit: Optional[int] = None) -> Any:
     """
     Redis의 REDIS_KEY 값을 JSON으로 파싱해서 반환.
     - 값 없으면 204
@@ -117,6 +117,9 @@ def latest_dashboard(response: Response) -> Any:
 
     Spark가 Redis에 쌓아둔 4개 메트릭 키를 읽어서
     프론트가 원하는 dashboard JSON 형태로 '조립'해서 반환한다.
+
+    Query Parameters:
+    - limit: 반환할 데이터 포인트 개수 제한 (기본값: 제한 없음, 전체 반환)
     """
     try:
         r = get_redis()
@@ -144,8 +147,11 @@ def latest_dashboard(response: Response) -> Any:
             if ep is None:
                 continue
             total.append({"t": ep, "v": int(item.get("count", 0))})
-        # Spark에서 desc로 뽑아놔서 역순일 수 있음 → 시간 오름차순 정렬
+        # 시간 오름차순 정렬
         total.sort(key=lambda x: x["t"])
+        # limit 적용 (최신 데이터부터)
+        if limit and limit > 0:
+            total = total[-limit:]
 
     # (2) byType: {type: [{t,v}]}
     byType: Dict[str, list] = {}
@@ -160,9 +166,11 @@ def latest_dashboard(response: Response) -> Any:
                 for tname, cnt in counts.items():
                     byType.setdefault(tname, []).append({"t": ep, "v": int(cnt)})
 
-        # 각 타입별 시간 정렬
+        # 각 타입별 시간 정렬 및 limit 적용
         for k in list(byType.keys()):
             byType[k].sort(key=lambda x: x["t"])
+            if limit and limit > 0:
+                byType[k] = byType[k][-limit:]
 
     # (3) bot: {windowSec,total,bot,ratio}
     bot = {"windowSec": BOT_WINDOW_SEC, "total": 0, "bot": 0, "ratio": 0.0}

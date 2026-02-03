@@ -266,7 +266,7 @@ def get_redis_client():
 
 def write_metric1_to_outputs(batch_df, batch_id):
     """
-    메트릭 1 결과를 JSON 파일과 Redis에 저장
+    메트릭 1 결과를 JSON 파일과 Redis에 누적 저장
     Redis key: metrics:events_total_10m_10s
     """
     if batch_df.isEmpty():
@@ -277,20 +277,44 @@ def write_metric1_to_outputs(batch_df, batch_id):
         .mode("append") \
         .json(f"{PROCESSED_DATA_PATH}/events_total")
 
-    # Redis에 저장 (최신 결과만)
-    records = batch_df.orderBy(col("window_start").desc()).limit(60).collect()
-    result = [
+    # 새로운 레코드 생성
+    new_records = [
         {
             "ts": row.window_start.isoformat(),
             "count": int(row.event_count)
         }
-        for row in records
+        for row in batch_df.collect()
     ]
 
     try:
         r = get_redis_client()
-        r.set("metrics:events_total_10m_10s", json.dumps(result))
-        print(f"[Metric 1] Batch {batch_id}: {len(result)} records saved to Redis")
+
+        # 기존 데이터 읽기
+        existing_data = r.get("metrics:events_total_10m_10s")
+        if existing_data:
+            try:
+                existing_records = json.loads(existing_data)
+            except json.JSONDecodeError:
+                existing_records = []
+        else:
+            existing_records = []
+
+        # 중복 제거를 위해 timestamp를 키로 하는 딕셔너리 생성
+        records_dict = {rec["ts"]: rec for rec in existing_records}
+
+        # 새 레코드 추가 (덮어쓰기)
+        for rec in new_records:
+            records_dict[rec["ts"]] = rec
+
+        # 시간순 정렬 (최신순)
+        all_records = sorted(records_dict.values(), key=lambda x: x["ts"], reverse=True)
+
+        # 최근 1000개로 제한 (약 2.7시간 분량, 10초 버킷 기준)
+        all_records = all_records[:1000]
+
+        # Redis에 저장
+        r.set("metrics:events_total_10m_10s", json.dumps(all_records))
+        print(f"[Metric 1] Batch {batch_id}: Added {len(new_records)} records, Total {len(all_records)} records in Redis")
     except Exception as e:
         print(f"[Metric 1] Redis error: {e}")
 
@@ -321,22 +345,47 @@ def write_metric2_to_outputs(batch_df, batch_id):
     # 3) JSON 파일 저장
     grouped.coalesce(1).write.mode("append").json(f"{PROCESSED_DATA_PATH}/events_by_type")
 
-    # 4) Redis 저장 (최근 60개 윈도우)
-    records = grouped.orderBy(col("window_start").desc()).collect()
+    # 4) Redis에 누적 저장
+    records = grouped.collect()
 
-    window_dict = {}
+    # 새로운 윈도우 데이터 구성
+    new_window_dict = {}
     for row in records:
         ts = row.window_start.isoformat()
-        if ts not in window_dict:
-            window_dict[ts] = {}
-        window_dict[ts][row.final_type] = int(row.cnt)
-
-    result = [{"ts": ts, "type_counts": counts} for ts, counts in sorted(window_dict.items(), reverse=True)[:60]]
+        if ts not in new_window_dict:
+            new_window_dict[ts] = {}
+        new_window_dict[ts][row.final_type] = int(row.cnt)
 
     try:
         r = get_redis_client()
-        r.set("metrics:events_by_type_10m_10s", json.dumps(result))
-        print(f"[Metric 2] Batch {batch_id}: {len(result)} windows saved to Redis")
+
+        # 기존 데이터 읽기
+        existing_data = r.get("metrics:events_by_type_10m_10s")
+        if existing_data:
+            try:
+                existing_records = json.loads(existing_data)
+                # 리스트를 딕셔너리로 변환
+                existing_dict = {rec["ts"]: rec["type_counts"] for rec in existing_records}
+            except json.JSONDecodeError:
+                existing_dict = {}
+        else:
+            existing_dict = {}
+
+        # 새 데이터로 업데이트 (덮어쓰기)
+        existing_dict.update(new_window_dict)
+
+        # 시간순 정렬 (최신순)하여 리스트로 변환
+        all_records = [
+            {"ts": ts, "type_counts": counts}
+            for ts, counts in sorted(existing_dict.items(), reverse=True)
+        ]
+
+        # 최근 1000개 윈도우로 제한 (약 2.7시간 분량, 10초 버킷 기준)
+        all_records = all_records[:1000]
+
+        # Redis에 저장
+        r.set("metrics:events_by_type_10m_10s", json.dumps(all_records))
+        print(f"[Metric 2] Batch {batch_id}: Added {len(new_window_dict)} windows, Total {len(all_records)} windows in Redis")
     except Exception as e:
         print(f"[Metric 2] Redis error: {e}")
 
