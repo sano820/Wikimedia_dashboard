@@ -34,15 +34,15 @@ services:
       # - PLAINTEXT: 도커 네트워크 내부 통신(다른 컨테이너들이 kafka:9092로 접속)
       # - PLAINTEXT_HOST: 호스트(로컬PC)에서 접속할 포트(여기선 29092로 열어둠)
       # - CONTROLLER: KRaft 컨트롤러 통신 전용 포트
-      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093"
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:29093"
 
       # 클라이언트에게 "어디로 접속해야 하는지" 알려주는 주소(중요)
       # - 도커 내부 컨테이너들은 kafka:9092로
       # - 호스트(너의 로컬 PC)는 localhost:29092로
-      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
 
       # 리스너 이름별 프로토콜 매핑 (CONTROLLER도 추가!)
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
 
       # 브로커들끼리 통신할 때 사용할 리스너 이름(단일 노드라도 보통 명시)
       KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"

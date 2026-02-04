@@ -1,6 +1,7 @@
 # docker/dockerfile
 FROM python:3.12-slim
 
+# 컨테이너 내부 기준 디렉토리 설정
 WORKDIR /app
 
 COPY requirements.txt .
