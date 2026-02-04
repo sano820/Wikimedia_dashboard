@@ -1,3 +1,5 @@
+// 시간 범위 선택 UI
+
 export default function TimeRangeSelector({ value, onChange, options }) {
   return (
     <div style={{
