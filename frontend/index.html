@@ -1,14 +1,14 @@
-<!doctype html>
-<html lang="ko">
+<!doctype html>   <!-- HTML 문서 선언-->
+<html lang="ko">  <!-- 문서 기번 언어를 한국어로 지정-->
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Wikimedia 실시간 스트리밍 데이터 대시보드" />
-    <title>Wikimedia Realtime Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />    <!-- 반응형으로 해서, 모바일에서 화면 폭을 "기기 폭"에 맞추고 초기 확대 비율을 1로 설정-->
+    <meta name="description" content="Wikimedia 실시간 스트리밍 데이터 대시보드" />  <!-- 페이지 설명, -> 검색 결과에서 페이지 설명으로 사용될 수 있는 메타 정보-->
+    <title>Wikimedia Realtime Dashboard</title>                                  <!-- 브라우저 탭 제목 -->
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <div id="root"></div>                                                        <!-- react가 붙는 DOM 앵커 => react 앱이 랜더링 되는 진입점./// main.jsx에서 여기에 화면을 전부 그리기-->
+    <script type="module" src="/src/main.jsx"></script>                          <!-- 이 줄이 실행되면서 react가 시작, app이 root에 마운트됨. -->
   </body>
 </html>
