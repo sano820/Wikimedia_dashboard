@@ -2,6 +2,7 @@
 """
 Consumer
 - Kafka topic에서 메시지를 읽어 파일로 저장(JSON Lines)
+- recentchange + revision-create 두 토픽 동시 구독
 """
 import json
 import os
@@ -12,7 +13,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
-TOPIC = os.getenv("KAFKA_TOPIC", "wiki-events")
+TOPIC_RECENTCHANGE = os.getenv("KAFKA_TOPIC_RECENTCHANGE", "wiki-recentchange")
+TOPIC_REVISION_CREATE = os.getenv("KAFKA_TOPIC_REVISION_CREATE", "wiki-revision-create")
 GROUP_ID = os.getenv("KAFKA_GROUP_ID", "wikimeda-consumer-group")
 
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "Wikimeda_Dashboard/data")
@@ -25,7 +27,7 @@ def main():
     out_path = OUTPUT_FILE.strip()
     if not out_path:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_path = os.path.join(OUTPUT_DIR, f"recentchange_{ts}.jsonl")
+        out_path = os.path.join(OUTPUT_DIR, f"wiki_events_{ts}.jsonl")
 
     # ✅ consumer 생성은 out_path 여부와 무관하게 항상 실행되어야 함
     consumer = Consumer(
@@ -37,9 +39,11 @@ def main():
         }
     )
 
-    consumer.subscribe([TOPIC])
+    # 두 토픽 동시 구독
+    topics = [TOPIC_RECENTCHANGE, TOPIC_REVISION_CREATE]
+    consumer.subscribe(topics)
 
-    print(f"[consumer] bootstrap={KAFKA_BOOTSTRAP}, topic={TOPIC}, group={GROUP_ID}")
+    print(f"[consumer] bootstrap={KAFKA_BOOTSTRAP}, topics={topics}, group={GROUP_ID}")
     print(f"[consumer] writing to {out_path}")
 
     count = 0

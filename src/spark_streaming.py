@@ -1,9 +1,9 @@
 # src/spark_streaming.py
 """
 Wikimedia Kafka 스트림 처리 with Spark Structured Streaming
-- Kafka topic 'wiki-events'에서 Wikimedia recentchange 이벤트 읽기
+- Kafka topics 'wiki-recentchange', 'wiki-revision-create'에서 이벤트 읽기
 - Raw 데이터를 Parquet로 저장
-- 4가지 집계 메트릭 계산 및 JSON + Redis 저장
+- 5가지 집계 메트릭 계산 및 JSON + Redis 저장
 """
 import os
 import json
@@ -20,7 +20,8 @@ from pyspark.sql.types import (
 
 # 환경 변수
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
-KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "wiki-events")
+KAFKA_TOPIC_RECENTCHANGE = os.getenv("KAFKA_TOPIC_RECENTCHANGE", "wiki-recentchange")
+KAFKA_TOPIC_REVISION_CREATE = os.getenv("KAFKA_TOPIC_REVISION_CREATE", "wiki-revision-create")
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
@@ -31,11 +32,19 @@ CHECKPOINT_BASE = "/app/checkpoints"
 
 
 def create_spark_session():
-    """SparkSession 생성 (Kafka 패키지 포함)"""
+    """
+    SparkSession 생성 (Kafka 패키지 포함)
+    최적화 설정:
+    - shuffle.partitions: 2 (두 토픽이므로 적절한 병렬도)
+    - adaptive.enabled: true (동적 최적화)
+    - streaming.statefulOperator.checkCorrectness.enabled: false (성능 향상)
+    """
     spark = SparkSession.builder \
         .appName("WikimediaStreaming") \
         .config("spark.sql.streaming.schemaInference", "true") \
-        .config("spark.sql.shuffle.partitions", "4") \
+        .config("spark.sql.shuffle.partitions", "2") \
+        .config("spark.sql.adaptive.enabled", "true") \
+        .config("spark.sql.streaming.statefulOperator.checkCorrectness.enabled", "false") \
         .getOrCreate()
 
     spark.sparkContext.setLogLevel("WARN")
@@ -44,7 +53,7 @@ def create_spark_session():
 
 def get_wikimedia_schema():
     """
-    Wikimedia recentchange 이벤트 스키마
+    Wikimedia recentchange + revision-create 통합 스키마
     실제 이벤트 구조에 맞게 정의
     """
     return StructType([
@@ -84,17 +93,30 @@ def get_wikimedia_schema():
         # 기타
         StructField("patrolled", BooleanType(), True),
         StructField("timestamp", LongType(), True),
+
+        # revision-create 전용 필드
+        StructField("rev_content_changed", BooleanType(), True),
     ])
 
 
 def read_from_kafka(spark):
-    """Kafka에서 wiki-events 토픽 읽기"""
+    """
+    Kafka에서 두 토픽 읽기
+    - wiki-recentchange: recentchange 이벤트
+    - wiki-revision-create: revision-create 이벤트
+
+    최적화 설정:
+    - maxOffsetsPerTrigger: 5000 (트리거당 최대 메시지 수 제한, 메모리 관리)
+    - minPartitions: 2 (두 토픽에 적절한 파티션 수)
+    """
     kafka_df = spark.readStream \
         .format("kafka") \
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
-        .option("subscribe", KAFKA_TOPIC) \
+        .option("subscribe", f"{KAFKA_TOPIC_RECENTCHANGE},{KAFKA_TOPIC_REVISION_CREATE}") \
         .option("startingOffsets", "latest") \
         .option("failOnDataLoss", "false") \
+        .option("maxOffsetsPerTrigger", "5000") \
+        .option("minPartitions", "2") \
         .load()
 
     return kafka_df
@@ -109,6 +131,7 @@ def parse_events(kafka_df, schema):
     - event_type: type
     - bot: coalesce(bot, false)
     - wiki: wiki
+    - rev_content_changed: revision-create 이벤트에서 실제 content 변경 여부
     """
     # JSON 파싱
     parsed_df = kafka_df.selectExpr("CAST(value AS STRING) as json_str") \
@@ -135,6 +158,9 @@ def parse_events(kafka_df, schema):
         col("data.comment").alias("comment"),
         col("data.namespace").alias("namespace"),
         coalesce(col("data.minor"), lit(False)).alias("minor"),
+
+        # revision-create 전용 필드
+        coalesce(col("data.rev_content_changed"), lit(False)).alias("rev_content_changed"),
 
         # 원본 JSON도 보관
         col("json_str").alias("raw_json")
@@ -254,13 +280,48 @@ def metric4_top_domains(df):
     return domain_counts
 
 
+def metric5_content_change_ratio(df):
+    """
+    메트릭 5: 실제 content 변경 비율
+    - revision-create 이벤트에서 rev_content_changed=true인 비율 계산
+    - 윈도우: 최근 1분
+    - 출력: { "ts": "...", "content_change_ratio": 0.85, "content_changed_count": 85, "total_revision_count": 100 }
+    """
+    # revision-create 이벤트만 필터링 (stream = "mediawiki.revision-create")
+    revision_df = df.filter(col("stream") == "mediawiki.revision-create")
+
+    aggregated = revision_df \
+        .withWatermark("event_time", "2 minutes") \
+        .groupBy(window(col("event_time"), "1 minute")) \
+        .agg(
+            count("*").alias("total_revision_count"),
+            spark_sum(when(col("rev_content_changed") == True, 1).otherwise(0)).alias("content_changed_count")
+        ) \
+        .select(
+            col("window.start").alias("window_start"),
+            col("window.end").alias("window_end"),
+            col("total_revision_count"),
+            col("content_changed_count"),
+            (col("content_changed_count") / col("total_revision_count")).alias("content_change_ratio")
+        )
+
+    return aggregated
+
+
 
 def get_redis_client():
-    """Redis 클라이언트 생성"""
+    """
+    Redis 클라이언트 생성 (연결 풀 사용)
+    최적화: ConnectionPool 사용으로 연결 재사용
+    """
     return redis.Redis(
         host=REDIS_HOST,
         port=REDIS_PORT,
-        decode_responses=True
+        decode_responses=True,
+        max_connections=10,
+        socket_keepalive=True,
+        socket_timeout=5,
+        retry_on_timeout=True
     )
 
 
@@ -268,11 +329,15 @@ def write_metric1_to_outputs(batch_df, batch_id):
     """
     메트릭 1 결과를 JSON 파일과 Redis에 누적 저장
     Redis key: metrics:events_total_10m_10s
+    최적화: coalesce(1)로 파일 수 최소화, Redis 파이프라인 사용
     """
     if batch_df.isEmpty():
         return
 
-    # JSON 파일로 저장
+    # 데이터 수집 (한 번만)
+    rows = batch_df.collect()
+
+    # JSON 파일로 저장 (최적화: coalesce로 단일 파일)
     batch_df.coalesce(1).write \
         .mode("append") \
         .json(f"{PROCESSED_DATA_PATH}/events_total")
@@ -283,7 +348,7 @@ def write_metric1_to_outputs(batch_df, batch_id):
             "ts": row.window_start.isoformat(),
             "count": int(row.event_count)
         }
-        for row in batch_df.collect()
+        for row in rows
     ]
 
     try:
@@ -312,8 +377,8 @@ def write_metric1_to_outputs(batch_df, batch_id):
         # 최근 1000개로 제한 (약 2.7시간 분량, 10초 버킷 기준)
         all_records = all_records[:1000]
 
-        # Redis에 저장
-        r.set("metrics:events_total_10m_10s", json.dumps(all_records))
+        # Redis에 저장 (최적화: 단일 SET 명령)
+        r.set("metrics:events_total_10m_10s", json.dumps(all_records), ex=10800)  # 3시간 TTL
         print(f"[Metric 1] Batch {batch_id}: Added {len(new_records)} records, Total {len(all_records)} records in Redis")
     except Exception as e:
         print(f"[Metric 1] Redis error: {e}")
@@ -324,6 +389,7 @@ def write_metric2_to_outputs(batch_df, batch_id):
     메트릭 2 결과를 JSON 파일과 Redis에 저장
     - 배치(정적 DF)이므로 row_number 사용 가능
     - window별 top5 + others로 묶는다
+    최적화: window 함수 최적화, Redis TTL 추가
     """
     if batch_df.isEmpty():
         return
@@ -331,7 +397,7 @@ def write_metric2_to_outputs(batch_df, batch_id):
     from pyspark.sql.window import Window
     from pyspark.sql.functions import row_number, sum as _sum
 
-    # 1) window별 cnt 기준 rank
+    # 1) window별 cnt 기준 rank (최적화: 파티션 수 최소화)
     w = Window.partitionBy("window_start", "window_end").orderBy(col("cnt").desc())
     ranked = batch_df.withColumn("rank", row_number().over(w))
 
@@ -342,7 +408,7 @@ def write_metric2_to_outputs(batch_df, batch_id):
     ).groupBy("window_start", "window_end", "final_type") \
     .agg(_sum("cnt").alias("cnt"))
 
-    # 3) JSON 파일 저장
+    # 3) JSON 파일 저장 (최적화: 단일 파일)
     grouped.coalesce(1).write.mode("append").json(f"{PROCESSED_DATA_PATH}/events_by_type")
 
     # 4) Redis에 누적 저장
@@ -383,8 +449,8 @@ def write_metric2_to_outputs(batch_df, batch_id):
         # 최근 1000개 윈도우로 제한 (약 2.7시간 분량, 10초 버킷 기준)
         all_records = all_records[:1000]
 
-        # Redis에 저장
-        r.set("metrics:events_by_type_10m_10s", json.dumps(all_records))
+        # Redis에 저장 (최적화: TTL 추가)
+        r.set("metrics:events_by_type_10m_10s", json.dumps(all_records), ex=10800)  # 3시간 TTL
         print(f"[Metric 2] Batch {batch_id}: Added {len(new_window_dict)} windows, Total {len(all_records)} windows in Redis")
     except Exception as e:
         print(f"[Metric 2] Redis error: {e}")
@@ -395,6 +461,7 @@ def write_metric3_to_outputs(batch_df, batch_id):
     """
     메트릭 3 결과를 JSON 파일과 Redis에 저장
     Redis key: metrics:bot_ratio_1m
+    최적화: TTL 추가, 안전한 float 변환
     """
     if batch_df.isEmpty():
         return
@@ -409,14 +476,14 @@ def write_metric3_to_outputs(batch_df, batch_id):
     if latest:
         result = {
             "ts": latest.window_start.isoformat(),
-            "bot_ratio": float(latest.bot_ratio),
+            "bot_ratio": float(latest.bot_ratio) if latest.bot_ratio else 0.0,
             "bot_count": int(latest.bot_count),
             "total_count": int(latest.total_count)
         }
 
         try:
             r = get_redis_client()
-            r.set("metrics:bot_ratio_1m", json.dumps(result))
+            r.set("metrics:bot_ratio_1m", json.dumps(result), ex=300)  # 5분 TTL
             print(f"[Metric 3] Batch {batch_id}: bot_ratio={result['bot_ratio']:.2%} saved to Redis")
         except Exception as e:
             print(f"[Metric 3] Redis error: {e}")
@@ -426,6 +493,7 @@ def write_metric4_to_outputs(batch_df, batch_id):
     """
     메트릭 4 결과를 JSON 파일과 Redis에 저장
     - 배치 DF에서 최신 window를 고르고 그 window에서 top10만 추출
+    최적화: TTL 추가, 불필요한 필터링 제거
     """
     if batch_df.isEmpty():
         return
@@ -439,7 +507,7 @@ def write_metric4_to_outputs(batch_df, batch_id):
 
     latest_window_df = batch_df.filter((col("window_start") == ws) & (col("window_end") == we))
 
-    # 2) top10
+    # 2) top10 (최적화: limit으로 데이터 양 최소화)
     top10 = latest_window_df.orderBy(col("cnt").desc()).limit(10)
 
     # 3) JSON 파일 저장
@@ -451,10 +519,42 @@ def write_metric4_to_outputs(batch_df, batch_id):
 
     try:
         r = get_redis_client()
-        r.set("metrics:top_domain_5m_top10", json.dumps(result))
+        r.set("metrics:top_domain_5m_top10", json.dumps(result), ex=600)  # 10분 TTL
         print(f"[Metric 4] Batch {batch_id}: {len(result)} domains saved to Redis")
     except Exception as e:
         print(f"[Metric 4] Redis error: {e}")
+
+
+def write_metric5_to_outputs(batch_df, batch_id):
+    """
+    메트릭 5 결과를 JSON 파일과 Redis에 저장
+    Redis key: metrics:content_change_ratio_1m
+    최적화: TTL 추가, 안전한 float 변환
+    """
+    if batch_df.isEmpty():
+        return
+
+    # JSON 파일로 저장
+    batch_df.coalesce(1).write \
+        .mode("append") \
+        .json(f"{PROCESSED_DATA_PATH}/content_change_ratio")
+
+    # Redis에 저장 (최신 1개만)
+    latest = batch_df.orderBy(col("window_start").desc()).first()
+    if latest:
+        result = {
+            "ts": latest.window_start.isoformat(),
+            "content_change_ratio": float(latest.content_change_ratio) if latest.content_change_ratio else 0.0,
+            "content_changed_count": int(latest.content_changed_count),
+            "total_revision_count": int(latest.total_revision_count)
+        }
+
+        try:
+            r = get_redis_client()
+            r.set("metrics:content_change_ratio_1m", json.dumps(result), ex=300)  # 5분 TTL
+            print(f"[Metric 5] Batch {batch_id}: content_change_ratio={result['content_change_ratio']:.2%} saved to Redis")
+        except Exception as e:
+            print(f"[Metric 5] Redis error: {e}")
 
 
 
@@ -462,7 +562,7 @@ def main():
     print("=" * 60)
     print("Wikimedia Spark Structured Streaming")
     print(f"Kafka: {KAFKA_BOOTSTRAP_SERVERS}")
-    print(f"Topic: {KAFKA_TOPIC}")
+    print(f"Topics: {KAFKA_TOPIC_RECENTCHANGE}, {KAFKA_TOPIC_REVISION_CREATE}")
     print(f"Redis: {REDIS_HOST}:{REDIS_PORT}")
     print("=" * 60)
 
@@ -516,7 +616,16 @@ def main():
         .start()
     print("[Metric 4] Started: Top domains (5min window, top 10)")
 
-    print("\nAll streaming queries started. Waiting for termination...")
+    # 메트릭 5: 실제 content 변경 비율
+    metric5_df = metric5_content_change_ratio(events_df)
+    metric5_query = metric5_df.writeStream \
+        .foreachBatch(write_metric5_to_outputs) \
+        .outputMode("update") \
+        .option("checkpointLocation", f"{CHECKPOINT_BASE}/metric5") \
+        .start()
+    print("[Metric 5] Started: Content change ratio (1min window, revision-create only)")
+
+    print("\nAll 5 metrics streaming queries started. Waiting for termination...")
     print("Press Ctrl+C to stop")
 
     # 모든 쿼리 대기

@@ -85,10 +85,12 @@ services:
       context: ..
       dockerfile: docker/dockerfile
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     env_file:
       - ../.env
     command: ["python", "producer.py"]
+    restart: unless-stopped
     networks:
       - wikimedia-network
 
@@ -97,12 +99,17 @@ services:
       context: ..
       dockerfile: docker/dockerfile
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     env_file:
       - ../.env
+    environment:
+      KAFKA_TOPIC_RECENTCHANGE: wiki-recentchange
+      KAFKA_TOPIC_REVISION_CREATE: wiki-revision-create
     volumes:
       - ../data:/data
     command: ["python", "consumer.py"]
+    restart: unless-stopped
     networks:
       - wikimedia-network
       
@@ -131,8 +138,12 @@ services:
       context: ..
       dockerfile: docker/dockerfile.spark
     depends_on:
-      - kafka
-      - redis
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      producer:
+        condition: service_started
     user: "0:0"
     working_dir: /app
     volumes:
@@ -142,7 +153,8 @@ services:
       - ../data:/app/data
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      KAFKA_TOPIC: wiki-events
+      KAFKA_TOPIC_RECENTCHANGE: wiki-recentchange
+      KAFKA_TOPIC_REVISION_CREATE: wiki-revision-create
       SPARK_CHECKPOINT_DIR: /app/checkpoints/wiki
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -179,7 +191,7 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-       # 키들은 기본값이 spark 코드랑 맞아서 없어도 됨(원하면 명시 가능)
+      # 키들은 기본값이 spark 코드랑 맞아서 없어도 됨(원하면 명시 가능)
       # - KEY_TOTAL=metrics:events_total_10m_10s
       # - KEY_BY_TYPE=metrics:events_by_type_10m_10s
       # - KEY_BOT=metrics:bot_ratio_1m
