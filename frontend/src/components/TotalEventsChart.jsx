@@ -3,6 +3,7 @@ import Card from "./Card";
 
 export default function TotalEventsChart({ data, bucketSec = 10 }) {
   return (
+    // bucketSec: 서버가 몇 초 버킷으로 집계했는지(타이틀에 표시)
     <Card title={`전체 이벤트량 (${bucketSec}초 버킷)`}>
       <div style={{ width: "100%", height: 280 }}>
         <ResponsiveContainer>

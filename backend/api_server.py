@@ -15,6 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 # -------------------------
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")  # docker compose 내부면 redis, 로컬이면 localhost
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+KEY_CONTENT = os.getenv("KEY_CONTENT", "metrics:content_change_ratio_1m")
+CONTENT_WINDOW_SEC = int(os.getenv("CONTENT_WINDOW_SEC", "60"))
+
 
 # spark가 실제로 쓴느 키들
 KEY_TOTAL = os.getenv("KEY_TOTAL", "metrics:events_total_10m_10s")
@@ -101,6 +104,7 @@ def health() -> Dict[str, Any]:
                 "byType": KEY_BY_TYPE,
                 "bot": KEY_BOT,
                 "top": KEY_TOP,
+                "content": KEY_CONTENT,
             },
         }
     except Exception as e:
@@ -130,9 +134,10 @@ def latest_dashboard(response: Response, limit: Optional[int] = None) -> Any:
     by_type_raw = _get_json(r, KEY_BY_TYPE)    # list[{ts,type_counts:{...}}]
     bot_raw = _get_json(r, KEY_BOT)            # {ts, bot_ratio, bot_count, total_count}
     top_raw = _get_json(r, KEY_TOP)            # list[{domain,count}]
+    content_raw = _get_json(r, KEY_CONTENT)  # {ts, content_change_ratio, content_changed_count, total_revision_count}
 
     # 아무것도 없으면 204
-    if not any([total_raw, by_type_raw, bot_raw, top_raw]):
+    if not any([total_raw, by_type_raw, bot_raw, top_raw, content_raw]):
         response.status_code = 204
         return None
 
@@ -185,6 +190,14 @@ def latest_dashboard(response: Response, limit: Optional[int] = None) -> Any:
         for item in top_raw:
             topWiki.append({"k": item.get("domain"), "v": int(item.get("count", 0))})
 
+    # (5) 
+    contentChange = {"windowSec": CONTENT_WINDOW_SEC, "total": 0, "changed": 0, "ratio": 0.0}
+    if isinstance(content_raw, dict):
+        contentChange["total"] = int(content_raw.get("total_revision_count", 0))
+        contentChange["changed"] = int(content_raw.get("content_changed_count", 0))
+        contentChange["ratio"] = float(content_raw.get("content_change_ratio", 0.0))
+        
+
     dashboard = {
         "bucketSec": BUCKET_SEC,
         "rangeMin": RANGE_MIN,
@@ -193,5 +206,6 @@ def latest_dashboard(response: Response, limit: Optional[int] = None) -> Any:
         "byType": byType,
         "bot": bot,
         "topWiki": topWiki,
+        "contentChange": contentChange,   # ✅ 추가
     }
     return dashboard

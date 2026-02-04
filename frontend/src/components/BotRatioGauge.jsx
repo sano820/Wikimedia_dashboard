@@ -1,6 +1,9 @@
+// BOT 비율 표시
+
 import Card from "./Card";
 
 export default function BotRatioGauge({ ratio, total, bot, windowSec = 60 }) {
+  // ratio는 0~1 형태를 기대(없으면 0)
   const percentage = Math.round((ratio ?? 0) * 100);
 
   return (
