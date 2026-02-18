@@ -129,7 +129,7 @@ services:
       SPARK_MASTER_WEBUI_PORT: 8080
     volumes:
       - ../data:/data
-      - ../src:/app
+      - ../data-engineer:/app
     networks:
       - wikimedia-network
 
@@ -147,7 +147,7 @@ services:
     user: "0:0"
     working_dir: /app
     volumes:
-      - ../src:/app/src:ro
+      - ../data-engineer:/app/data-engineer:ro
       - ../checkpoints:/app/checkpoints
       - ../output:/app/output
       - ../data:/app/data
@@ -161,7 +161,7 @@ services:
     command: >
       /opt/spark/bin/spark-submit
       --master local[*]
-      /app/src/spark_streaming.py
+      /app/data-engineer/spark_streaming.py
     restart: unless-stopped
     networks:
       - wikimedia-network
