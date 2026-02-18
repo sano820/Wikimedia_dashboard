@@ -3,7 +3,8 @@
 ## 프로젝트 소개
 ---
 - Wikimedia 실시간 스트림을 Kafka-Spark-Elasticsearch 로 처리하여,  
-1~5분 윈도우 기반의 편집 트렌드/봇 비율/키워드 급증(이상치) 등을 실시간 대시보드로 제공하는 스트리밍 데이터 파이프라인 구축
+1~5분 윈도우 기반의 편집 트렌드/봇 비율/키워드 급증(이상치) 등을
+실시간 대시보드로 제공하는 스트리밍 데이터 파이프라인 구축
 
 
 ## Key Design Decisions
@@ -13,19 +14,19 @@
      - 멀티 스트림 확장 가능 구조
 
 2. Spark에서 계산, Backend는 전달만
-- Spark에서 모든 집계 수행
-- Backend는 Redis 조회 및 응답 포맷 통합
-- Stateless API 설계
+     - Spark에서 모든 집계 수행
+     - Backend는 Redis 조회 및 응답 포맷 통합
+     - Stateless API 설계
 
 3. Redis를 Serving Layer로 사용
-- 실시간 대시보드 특성상 낮은 지연이 핵심
-- 집계 결과만 저장
-- metrics:{stream}:{metric} 네임스페이스 전략 적용
+     - 실시간 대시보드 특성상 낮은 지연이 핵심
+     - 집계 결과만 저장
+     - metrics:{stream}:{metric} 네임스페이스 전략 적용
 
 4. 단일 API 인터페이스
-- /api/dashboard/latest
-- Frontend는 내부 파이프라인을 알 필요 없음
-- 계층 간 결합도 최소화
+     - /api/dashboard/latest
+     - Frontend는 내부 파이프라인을 알 필요 없음
+     - 계층 간 결합도 최소화
 
 ## 팀원 구성
 ---
