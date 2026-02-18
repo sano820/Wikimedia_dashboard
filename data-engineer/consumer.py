@@ -1,4 +1,4 @@
-# src/consumer.py
+# data-engineer/consumer.py
 """
 Consumer
 - Kafka topic에서 메시지를 읽어 파일로 저장(JSON Lines)

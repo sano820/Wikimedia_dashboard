@@ -1,4 +1,4 @@
-# src/producer.py
+# data-engineer/producer.py
 """
 Producer
 - Wikimedia EventStreams에서 이벤트를 받아 Kafka topic에 JSON(bytes)으로 전송
