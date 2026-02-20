@@ -14,7 +14,7 @@ Wikimedia 실시간 스트림을 Kafka-Spark-Elasticsearch 로 처리하여,
 |이재원|이시현|박상선|
 |:---:|:---:|:---:|
 |<img width="125" height="185" alt="image" src="https://github.com/user-attachments/assets/b106cee0-35a8-482f-b376-59136e0501a4" />|<img width="125" height="185" alt="image" src="https://github.com/user-attachments/assets/fde339f3-1000-4f31-8184-fd47cebad080" />|<img width="125" height="185" alt="image" src="https://github.com/user-attachments/assets/c7740be1-248f-40c4-9b29-99fe70f597b4" />|
-| [@leo771331](https://github.com/leo771331) | [@sion2058](https://github.com/sion2058) | [@sano820](https://github.com/sano820) |
+| [@leo771331](https://github.com/leo771331) | [@sion2058](https://github.com/sion2098) | [@sano820](https://github.com/sano820) |
 
 
 
